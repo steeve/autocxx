@@ -21,6 +21,7 @@
 // autocxx_macro::include_cpp_impl.
 
 pub mod subclass;
+mod value_param;
 
 #[allow(unused_imports)] // doc cross-reference only
 use autocxx_engine::IncludeCppEngine;
@@ -814,6 +815,8 @@ pub trait PinMut<T>: AsRef<T> {
     fn pin_mut(&mut self) -> std::pin::Pin<&mut T>;
 }
 
+pub use value_param::ValueParam;
+
 /// Imports which you're likely to want to use.
 pub mod prelude {
     pub use crate::c_int;
@@ -829,6 +832,7 @@ pub mod prelude {
     pub use crate::cpp_semantics;
     pub use crate::include_cpp;
     pub use crate::PinMut;
+    pub use crate::ValueParam;
     pub use moveit::moveit;
     pub use moveit::new::New;
 }

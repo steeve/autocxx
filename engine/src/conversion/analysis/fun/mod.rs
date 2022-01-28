@@ -28,7 +28,8 @@ use crate::{
         },
         api::{
             ApiName, CastMutability, CppVisibility, FuncToConvert, Provenance, References,
-            SpecialMemberKind, SubclassName, TraitImplSignature, TraitSynthesis, Virtualness,
+            SpecialMemberKind, SubclassName, TraitImplSignature, TraitSynthesis, UnsafetyNeeded,
+            Virtualness,
         },
         convert_error::ConvertErrorWithContext,
         convert_error::ErrorContext,
@@ -142,13 +143,6 @@ pub(crate) enum RustRenameStrategy {
 }
 
 #[derive(Clone)]
-pub(crate) enum UnsafetyNeeded {
-    None,
-    JustReceiver,
-    Always,
-}
-
-#[derive(Clone)]
 pub(crate) struct FnAnalysis {
     pub(crate) cxxbridge_name: Ident,
     pub(crate) rust_name: String,
@@ -179,7 +173,7 @@ pub(crate) struct ArgumentAnalysis {
     pub(crate) self_type: Option<(QualifiedName, ReceiverMutability)>,
     pub(crate) was_reference: bool,
     pub(crate) deps: HashSet<QualifiedName>,
-    pub(crate) requires_unsafe: bool,
+    pub(crate) requires_unsafe: UnsafetyNeeded,
 }
 
 struct ReturnTypeAnalysis {
@@ -341,29 +335,23 @@ impl<'a> FnAnalyzer<'a> {
         param_details: &[ArgumentAnalysis],
         kind: &FnKind,
     ) -> UnsafetyNeeded {
-        if self.unsafe_policy == UnsafePolicy::AllFunctionsUnsafe {
+        let r = if self.unsafe_policy == UnsafePolicy::AllFunctionsUnsafe
+            || matches!(
+                kind,
+                FnKind::TraitMethod {
+                    kind: TraitMethodKind::CopyConstructor
+                        | TraitMethodKind::MoveConstructor
+                        | TraitMethodKind::Alloc
+                        | TraitMethodKind::Dealloc,
+                    ..
+                }
+            ) {
             UnsafetyNeeded::Always
-        } else if param_details
-            .iter()
-            .any(|pd| pd.self_type.is_none() && pd.requires_unsafe)
-        {
-            UnsafetyNeeded::Always
-        } else if matches!(
-            kind,
-            FnKind::TraitMethod {
-                kind: TraitMethodKind::CopyConstructor
-                    | TraitMethodKind::MoveConstructor
-                    | TraitMethodKind::Alloc
-                    | TraitMethodKind::Dealloc,
-                ..
-            }
-        ) {
-            UnsafetyNeeded::Always
-        } else if param_details.iter().any(|pd| pd.requires_unsafe) {
-            UnsafetyNeeded::JustReceiver
         } else {
-            UnsafetyNeeded::None
-        }
+            UnsafetyNeeded::from_param_details(param_details, true)
+        };
+        log::info!("Calculated {:?}", r);
+        r
     }
 
     /// Analyze a given function, and any permutations of that function which
@@ -838,6 +826,7 @@ impl<'a> FnAnalyzer<'a> {
             _ => {}
         }
 
+        log::info!("About to find out unsafety for {:?}", &rust_name);
         let requires_unsafe = self.should_be_unsafe(&param_details, &kind);
 
         // Now we can add context to the error, check for a variety of error
@@ -1366,6 +1355,14 @@ impl<'a> FnAnalyzer<'a> {
                 );
                 pt.pat = Box::new(new_pat.clone());
                 pt.ty = new_ty;
+                let requires_unsafe =
+                    if matches!(annotated_type.kind, type_converter::TypeKind::Pointer) {
+                        UnsafetyNeeded::Always
+                    } else if conversion.bridge_unsafe_needed() {
+                        UnsafetyNeeded::JustBridge
+                    } else {
+                        UnsafetyNeeded::None
+                    };
                 (
                     FnArg::Typed(pt),
                     ArgumentAnalysis {
@@ -1378,10 +1375,7 @@ impl<'a> FnAnalyzer<'a> {
                                 | type_converter::TypeKind::MutableReference
                         ),
                         deps: annotated_type.types_encountered,
-                        requires_unsafe: matches!(
-                            annotated_type.kind,
-                            type_converter::TypeKind::Pointer
-                        ),
+                        requires_unsafe,
                     },
                 )
             }
@@ -1426,8 +1420,8 @@ impl<'a> FnAnalyzer<'a> {
                 } else {
                     TypeConversionPolicy {
                         unwrapped_type: ty,
-                        cpp_conversion: CppConversionType::FromUniquePtrToValue,
-                        rust_conversion: RustConversionType::None,
+                        cpp_conversion: CppConversionType::FromPtrToStackToValue,
+                        rust_conversion: RustConversionType::FromNewImplToPtrToStack,
                     }
                 }
             }

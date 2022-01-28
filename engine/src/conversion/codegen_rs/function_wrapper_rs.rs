@@ -15,8 +15,9 @@
 use proc_macro2::TokenStream;
 use syn::{Pat, Type, TypePtr};
 
-use crate::conversion::analysis::fun::function_wrapper::{
-    RustConversionType, TypeConversionPolicy,
+use crate::{
+    conversion::analysis::fun::function_wrapper::{RustConversionType, TypeConversionPolicy},
+    types::make_ident,
 };
 use quote::quote;
 use syn::parse_quote;
@@ -57,30 +58,63 @@ impl TypeConversionPolicy {
                 };
                 parse_quote! { &mut #ty }
             }
+            RustConversionType::FromNewImplToPtrToStack => {
+                let ty = &self.unwrapped_type;
+                parse_quote! { impl autocxx::ValueParam<#ty> }
+            }
         }
     }
 
-    pub(super) fn rust_conversion(&self, var: Pat) -> TokenStream {
+    pub(super) fn rust_conversion(&self, var: Pat) -> (Option<TokenStream>, TokenStream) {
         match self.rust_conversion {
-            RustConversionType::None => quote! { #var },
-            RustConversionType::FromStr => quote! ( #var .into_cpp() ),
+            RustConversionType::None => (None, quote! { #var }),
+            RustConversionType::FromStr => (None, quote! ( #var .into_cpp() )),
             RustConversionType::ToBoxedUpHolder(ref sub) => {
                 let holder_type = sub.holder();
-                quote! {
-                    Box::new(#holder_type(#var))
-                }
+                (
+                    None,
+                    quote! {
+                        Box::new(#holder_type(#var))
+                    },
+                )
             }
-            RustConversionType::FromPinMaybeUninitToPtr => quote! {
-                #var.get_unchecked_mut().as_mut_ptr()
-            },
-            RustConversionType::FromPinMoveRefToPtr => quote! {
-                { let r: &mut _ = ::std::pin::Pin::into_inner_unchecked(#var.as_mut());
-                r
-                }
-            },
-            RustConversionType::FromTypeToPtr => quote! {
-                #var
-            },
+            RustConversionType::FromPinMaybeUninitToPtr => (
+                None,
+                quote! {
+                    #var.get_unchecked_mut().as_mut_ptr()
+                },
+            ),
+            RustConversionType::FromPinMoveRefToPtr => (
+                None,
+                quote! {
+                    { let r: &mut _ = ::std::pin::Pin::into_inner_unchecked(#var.as_mut());
+                    r
+                    }
+                },
+            ),
+            RustConversionType::FromTypeToPtr => (
+                None,
+                quote! {
+                    #var
+                },
+            ),
+            RustConversionType::FromNewImplToPtrToStack => {
+                let var_name = if let Pat::Ident(pti) = &var {
+                    &pti.ident
+                } else {
+                    panic!("Unexpected non-ident parameter name");
+                };
+                let space_var_name = make_ident(format!("{}_space", var_name.to_string()));
+                (
+                    Some(quote! {
+                        let mut #space_var_name = std::mem::MaybeUninit::uninit();
+                        unsafe { #var.new(std::pin::Pin::new_unchecked(&mut #space_var_name)) };
+                    }),
+                    quote! {
+                        #space_var_name.as_ptr()
+                    },
+                )
+            }
         }
     }
 }

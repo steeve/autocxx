@@ -470,8 +470,15 @@ pub(crate) struct RustSubclassFnDetails {
     pub(crate) superclass: QualifiedName,
     pub(crate) receiver_mutability: ReceiverMutability,
     pub(crate) dependency: Option<QualifiedName>,
-    pub(crate) requires_unsafe: bool,
+    pub(crate) requires_unsafe: UnsafetyNeeded,
     pub(crate) is_pure_virtual: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum UnsafetyNeeded {
+    None,
+    JustBridge,
+    Always,
 }
 
 impl<T: AnalysisPhase> Api<T> {

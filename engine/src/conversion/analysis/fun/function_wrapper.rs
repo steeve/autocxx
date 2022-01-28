@@ -22,6 +22,7 @@ use syn::{parse_quote, Ident, Type};
 pub(crate) enum CppConversionType {
     None,
     FromUniquePtrToValue,
+    FromPtrToStackToValue,
     FromValueToUniquePtr,
     FromPtrToMove,
 }
@@ -32,7 +33,7 @@ impl CppConversionType {
             CppConversionType::None => CppConversionType::None,
             CppConversionType::FromUniquePtrToValue => CppConversionType::FromValueToUniquePtr,
             CppConversionType::FromValueToUniquePtr => CppConversionType::FromUniquePtrToValue,
-            CppConversionType::FromPtrToMove => panic!("Did not expect to have to invert move"),
+            _ => panic!("Did not expect to have to invert thos conversion"),
         }
     }
 }
@@ -45,6 +46,7 @@ pub(crate) enum RustConversionType {
     FromPinMaybeUninitToPtr,
     FromPinMoveRefToPtr,
     FromTypeToPtr,
+    FromNewImplToPtrToStack,
 }
 
 impl RustConversionType {
@@ -105,6 +107,12 @@ impl TypeConversionPolicy {
     pub(crate) fn converted_rust_type(&self) -> Type {
         match self.cpp_conversion {
             CppConversionType::FromUniquePtrToValue => self.make_unique_ptr_type(),
+            CppConversionType::FromPtrToStackToValue => {
+                let innerty = &self.unwrapped_type;
+                parse_quote! {
+                    *const #innerty
+                }
+            }
             _ => self.unwrapped_type.clone(),
         }
     }
@@ -126,6 +134,13 @@ impl TypeConversionPolicy {
             cpp_conversion: self.cpp_conversion.inverse(),
             rust_conversion: self.rust_conversion.clone(),
         }
+    }
+
+    pub(crate) fn bridge_unsafe_needed(&self) -> bool {
+        matches!(
+            self.rust_conversion,
+            RustConversionType::FromNewImplToPtrToStack
+        )
     }
 }
 

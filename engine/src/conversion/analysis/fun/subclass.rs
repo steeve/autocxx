@@ -20,7 +20,7 @@ use crate::conversion::analysis::fun::{FnKind, MethodKind, ReceiverMutability};
 use crate::conversion::analysis::pod::PodPhase;
 use crate::conversion::api::{
     CppVisibility, FuncToConvert, Provenance, RustSubclassFnDetails, SubclassConstructorDetails,
-    SubclassName, Virtualness,
+    SubclassName, UnsafetyNeeded, Virtualness,
 };
 use crate::{
     conversion::{
@@ -127,7 +127,7 @@ pub(super) fn create_subclass_function(
             superclass: superclass.clone(),
             receiver_mutability: receiver_mutability.clone(),
             dependency: dependency.cloned(),
-            requires_unsafe: analysis.param_details.iter().any(|pd| pd.requires_unsafe),
+            requires_unsafe: UnsafetyNeeded::from_param_details(&analysis.param_details, false),
             is_pure_virtual: matches!(
                 analysis.kind,
                 FnKind::Method(_, MethodKind::PureVirtual(..))
