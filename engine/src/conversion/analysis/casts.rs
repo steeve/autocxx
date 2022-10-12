@@ -23,7 +23,7 @@ use crate::{
 /// The first is OK; the others turn out to be hard due to all
 /// the Pin stuff. For now therefore, we simply don't allow them.
 /// But the related code may be useful in future so I'm keeping it around.
-const SUPPORT_MUTABLE_CASTS: bool = false;
+const SUPPORT_MUTABLE_CASTS: bool = true;
 
 use super::{
     fun::function_wrapper::{CppFunctionBody, CppFunctionKind},
